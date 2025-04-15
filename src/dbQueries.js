@@ -236,33 +236,6 @@ class DBQueries {
         return records[0].toObject();
       }
 
-    // --- Beregn Brukerpoeng ---
-    // Denne bør sannsynligvis IKKE caches aggressivt, da den endres ved updateCardState.
-    async calculateUserPoints() {
-      console.log("Calculating user points...");
-      // Juster spørringen basert på din faktiske datamodell for poeng og state
-      // Antar her at 'Kategori' har 'state' og poeng-relaterte felt
-      const cypher = `
-        MATCH (k:Kategori) // Eller :Kort
-        WHERE k.state = 'avhuket' // Bruk riktig state-verdi
-        // COALESCE håndterer null-verdier (hvis poeng ikke alltid er satt)
-        RETURN sum(coalesce(k.poeng, 0)) + sum(coalesce(k.alternativ_poeng, 0)) AS totalPoints
-      `;
-
-      // Ikke bruk cacheKey for denne
-      const records = await this.executeCypher(cypher);
-
-      // Håndter tilfellet der ingen kort er avhuket (resultatet er én record med null)
-      if (!records || records.length === 0 || !records[0].get('totalPoints')) {
-          return 0; // Returner 0 hvis ingen poeng funnet
-      }
-
-      // Bruk toBigInt for potensielt store tall, konverter til Number hvis trygt
-      const totalPoints = records[0].get('totalPoints');
-      // Neo4j driver kan returnere tall som BigInt eller spesielle number types.
-      // Konverter til vanlig number hvis innenfor JS sitt trygge heltallsområde.
-      return neo4j.integer.toNumber(totalPoints);
-    }
 
     // --- Metode for å Tømme Hele Cachen ---
     clearCache() {

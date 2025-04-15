@@ -12,6 +12,7 @@ const neo4j = require('neo4j-driver');
 const DBQueries = require('./dbQueries'); // Din klasse
 const createApiRoutes = require('./routes/api'); // Funksjon som lager ruter
 const errorHandler = require('./middleware/errorHandler'); // Feilhåndterer
+const { apiLimiter, authLimiter } = require('./middleware/rateLimiter'); //Ratelimiter
 
 // 3. Hent konfigurasjon fra miljøvariabler
 const { NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD, PORT = 3001, NEO4J_DATABASE = 'neo4j' } = process.env;
@@ -27,27 +28,27 @@ let dbQueries;
 
 try {
     // 5. Initialize Neo4j Driver with improved configuration
-    const driverConfig = {};
-    
-    if (NEO4J_URI.includes('databases.neo4j.io') || 
-        NEO4J_URI.startsWith('neo4j+s://') || 
-        NEO4J_URI.startsWith('bolt+s://')) {
-      // Configuration for Neo4j Aura or any secure connection
-      Object.assign(driverConfig, {
-        encrypted: true,
-        trust: 'TRUST_SYSTEM_CA_SIGNED_CERTIFICATES',
+    const driverConfig = { // Start with common configs
         connectionTimeout: 30000,
-        maxConnectionPoolSize: 50, // You can adjust this based on your needs
+        maxConnectionPoolSize: 50, // Adjust as needed
         userAgent: 'MyApp/1.0'
-      });
+    };
+
+    // Check if the URI explicitly requests encryption via scheme
+    if (NEO4J_URI.startsWith('neo4j+s://') || NEO4J_URI.startsWith('bolt+s://')) {
+        // If using +s scheme, DO NOT set 'encrypted' or 'trust' here.
+        // The driver handles it based on the URI scheme.
+        // You can add other non-encryption/trust configs if needed,
+        // but they are already in the initial object above.
+        console.log('Using secure connection scheme (+s). Driver will handle encryption/trust.');
     } else {
-      // Configuration for local/non-Aura databases
-      Object.assign(driverConfig, {
-        encrypted: false,
-        userAgent: 'MyApp/1.0'
-      });
+        // Configuration for non-secure URIs (e.g., 'neo4j://localhost')
+        // Explicitly disable encryption if not using +s
+        console.log('Using non-secure connection scheme. Explicitly disabling encryption.');
+        driverConfig.encrypted = false;
+        // Note: No 'trust' needed when encryption is off.
     }
-    
+
     // Create driver with the appropriate config
     driver = neo4j.driver(NEO4J_URI, neo4j.auth.basic(NEO4J_USER, NEO4J_PASSWORD), driverConfig);
   
@@ -93,6 +94,8 @@ app.use(express.json()); // For å parse JSON request bodies (f.eks. for POST /s
 // 9. Definer API Ruter
 // Send dbQueries-instansen til rutefunksjonen
 app.use('/api', createApiRoutes(dbQueries));
+
+app.use('/api', apiLimiter);
 
 // 10. Server statiske filer (Frontend build) - for Docker/Produksjon
 // Mappen 'public' i server-mappen vil inneholde build fra 'client/build'

@@ -49,8 +49,6 @@ This is a Node.js Express API that connects to a Neo4j Aura database.
 - GET `/api/categories` - Get all category IDs
 - GET `/api/cards` - Get all cards
 - GET `/api/cards/:id` - Get a specific card
-- PUT `/api/cards/:id/state` - Update card state
-- GET `/api/points` - Get user points
 - POST `/api/admin/clear-cache` - Clear server cache
 
 ## Production Deployment

@@ -1,5 +1,7 @@
 // server/src/routes/api.js
 const express = require('express');
+// Importer nødvendige funksjoner fra express-validator
+const { param, validationResult } = require('express-validator');
 
 /**
  * Oppretter API-ruter for applikasjonen
@@ -10,19 +12,19 @@ function createApiRoutes(dbQueries) {
   const router = express.Router();
 
   // --- KATEGORI ENDEPUNKTER ---
-  
+
   // Hent alle kategori-IDer
   router.get('/categories', async (req, res, next) => {
     try {
       const categoryIds = await dbQueries.getAllCategoryIds();
       res.json(categoryIds);
     } catch (error) {
-      next(error);
+      next(error); // Send feil til feilhåndteringsmiddleware
     }
   });
 
   // --- KORT ENDEPUNKTER ---
-  
+
   // Hent alle kort-IDer
   router.get('/cards', async (req, res, next) => {
     try {
@@ -33,65 +35,65 @@ function createApiRoutes(dbQueries) {
     }
   });
 
-  // Hent et spesifikt kort
-  router.get('/cards/:id', async (req, res, next) => {
+  // --- Definer valideringsregler for kort-ID ---
+  const validateCardId = [
+    param('id') // Målrett mot 'id' parameteren i URLen
+      .notEmpty().withMessage('Card ID cannot be empty') // Sjekk at den ikke er tom
+      .isInt({ min: 1 }).withMessage('Card ID must be a positive integer') // Sjekk at det er et heltall større enn 0
+      // .escape() // Valgfritt: Saniter input for å forhindre XSS hvis IDen skulle bli brukt usikkert et sted
+  ];
+
+  // Hent et spesifikt kort (med inputvalidering)
+  router.get('/cards/:id', validateCardId, async (req, res, next) => { // Legg til validateCardId som middleware
+    // Sjekk om valideringen feilet
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      // Returner 400 Bad Request med valideringsfeilene
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    // Hvis valideringen passerte, fortsett med rute-logikken
     try {
-      let cardId = req.params.id;
-      console.log(`API received card request for ID: ${cardId}, type: ${typeof cardId}`);
-      
-      // Konverter til tall hvis mulig
-      if (!isNaN(cardId)) {
-        cardId = parseInt(cardId, 10);
-        console.log(`Converted ID to number: ${cardId}`);
-      }
-      
+      // Vi vet nå at req.params.id er et gyldig positivt heltall (som streng)
+      const cardId = parseInt(req.params.id, 10); // Konverter til tall
+      console.log(`API received card request for validated ID: ${cardId}`);
+
       const cardData = await dbQueries.getCardById(cardId);
-      
-      if (!cardData) {
+
+      // Sjekk om kortet ble funnet (dbQueries kan returnere null, undefined, eller tom array)
+      if (!cardData || (Array.isArray(cardData) && cardData.length === 0)) {
         return res.status(404).json({ message: `Card with ID ${cardId} not found` });
       }
-      
+
       // Konverter Neo4j records til vanlige JSON-objekter for API-respons
       // Sjekk om dataen er en array eller ikke
+      let processedData;
       if (Array.isArray(cardData)) {
-        const processedData = cardData.map(record => {
-          // Sjekk om det er et Neo4j record med toObject-metode
-          if (record && typeof record.toObject === 'function') {
-            return record.toObject();
-          }
-          return record; // Allerede et vanlig objekt
-        });
-        
-        res.json(processedData);
+        processedData = cardData.map(record =>
+          record && typeof record.toObject === 'function' ? record.toObject() : record
+        );
       } else {
-        // Hvis det ikke er en array, konverter direkte
-        const result = cardData && typeof cardData.toObject === 'function' 
-          ? cardData.toObject() 
-          : cardData;
-          
-        res.json([result]); // Returner alltid som array for konsistens
+        // Enkelt objekt
+        processedData = [ // Returner alltid som array for konsistens
+            cardData && typeof cardData.toObject === 'function'
+            ? cardData.toObject()
+            : cardData
+        ];
       }
+
+      res.json(processedData);
+
     } catch (error) {
-      next(error);
+      next(error); // Send database/interne feil videre
     }
   });
-  
-  // --- BRUKER ENDEPUNKTER ---
-  
-  // Beregn og hent brukerpoeng
-  router.get('/points', async (req, res, next) => {
-    try {
-      const points = await dbQueries.calculateUserPoints();
-      res.json({ points });
-    } catch (error) {
-      next(error);
-    }
-  });
-  
+
+
   // --- ADMIN/DEBUG ENDEPUNKTER ---
-  
+
   // Tøm cache (kun for utviklingsformål)
   router.post('/admin/clear-cache', async (req, res, next) => {
+    // Merk: Hvis denne ruten skulle hatt input (f.eks. i body), ville vi validert det også.
     try {
       dbQueries.clearCache();
       res.json({ message: "Cache cleared successfully" });
