@@ -88,20 +88,6 @@ function createApiRoutes(dbQueries) {
     }
   });
 
-
-  // --- ADMIN/DEBUG ENDEPUNKTER ---
-
-  // Tøm cache (kun for utviklingsformål)
-  router.post('/admin/clear-cache', async (req, res, next) => {
-    // Merk: Hvis denne ruten skulle hatt input (f.eks. i body), ville vi validert det også.
-    try {
-      dbQueries.clearCache();
-      res.json({ message: "Cache cleared successfully" });
-    } catch (error) {
-      next(error);
-    }
-  });
-
   return router;
 }
 
