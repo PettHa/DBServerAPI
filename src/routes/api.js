@@ -75,41 +75,6 @@ function createApiRoutes(dbQueries) {
       next(error);
     }
   });
-
-  // Oppdater kort-status
-  router.put('/cards/:id/state', async (req, res, next) => {
-    try {
-      let cardId = req.params.id;
-      
-      // Konverter til tall hvis mulig
-      if (!isNaN(cardId)) {
-        cardId = parseInt(cardId, 10);
-      }
-      
-      const { state } = req.body;
-      
-      if (!state || (state !== 'avhuket' && state !== 'ikke_avhuket')) {
-        return res.status(400).json({ 
-          message: "Invalid request. Body must include 'state' with value 'avhuket' or 'ikke_avhuket'" 
-        });
-      }
-      
-      const updatedCard = await dbQueries.updateCardState(cardId, state);
-      
-      // Konverter Neo4j record til vanlig JSON-objekt for API-respons
-      const responseData = updatedCard && typeof updatedCard.toObject === 'function' 
-        ? updatedCard.toObject() 
-        : updatedCard;
-        
-      res.json(responseData);
-    } catch (error) {
-      // Hvis feilen handler om at kortet ikke ble funnet, send 404
-      if (error.message && error.message.includes('not found')) {
-        return res.status(404).json({ message: error.message });
-      }
-      next(error);
-    }
-  });
   
   // --- BRUKER ENDEPUNKTER ---
   
