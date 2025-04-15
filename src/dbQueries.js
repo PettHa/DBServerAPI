@@ -86,52 +86,59 @@ class DBQueries {
     // En kombinert spørring er ofte bedre, men kan bli kompleks.
     // Velger en litt forenklet versjon av den første spørringen din for eksempelet.
     async fetchCardDataById(cardId) {
-      const cacheKey = `card_${cardId}`;
-      // Sjekk cache først (håndteres nå i executeCypher hvis vi sender cacheKey)
-      console.log(`Fetching card data for ID: ${cardId}`);
-
-      // Forbedret spørring (juster etter ditt faktiske behov):
-      const cypher = `
-        MATCH (k:Kategori {kategori_id: $cardId})
-        OPTIONAL MATCH (k)-[:Inneholder]->(s:Spørsmål)
-        OPTIONAL MATCH (s)-[:Inneholder]->(a:Alternativ)
-        OPTIONAL MATCH (a)-[:Dekker]->(t:RammeverksTiltak)
-        OPTIONAL MATCH (t)<-[:Inneholder]-(r:Rammeverk)
-        RETURN
-          k.kategori_id AS id,
-          k.kategori AS kategori_tekst,
-          k.kategori_beskrivelse AS kategori_beskrivelse,
-          k.kategori_kort AS kategori_kort,
-          // Samle spørsmål og deres alternativer
-          collect(DISTINCT {
-            sporsmal_tekst: s.sporsmal,
-            alternativer: [(s)-[:Inneholder]->(a_nested) | {
-              alternativ_tekst: a_nested.alternativ_tekst,
-              alternativ_beskrivelse: a_nested.alternativ_beskrivelse,
-              alternativ_hva: a_nested.hva_skal_implementeres,
-              alternativ_hvordan: a_nested.hvordan_implementere,
-              alternativ_tiltak_info: [(a_nested)-[:Dekker]->(t_nested)<-[:Inneholder]-(r_nested) | {
-                id: t_nested.\`Lokal ID\`,
-                tittel: t_nested.Tiltak,
-                kapittel: t_nested.Kapittel,
-                standard: t_nested.Standard,
-                rammeverk: r_nested.Rammeverk
+        console.log(`Processing cardId in server: ${cardId}, type: ${typeof cardId}`);
+        
+        const cacheKey = `card_${cardId}`;
+        
+        // Sjekk cache først
+        if (this.cache[cacheKey]) {
+          console.log(`CACHE HIT for: ${cacheKey}`);
+          return this.cache[cacheKey];
+        }
+      
+        console.log(`Fetching card data for ID: ${cardId}`);
+      
+        // Spørringen forblir uendret
+        const cypher = `
+          MATCH (k:Kategori {kategori_id: $cardId})
+          OPTIONAL MATCH (k)-[:Inneholder]->(s:Spørsmål)
+          OPTIONAL MATCH (s)-[:Inneholder]->(a:Alternativ)
+          OPTIONAL MATCH (a)-[:Dekker]->(t:RammeverksTiltak)
+          OPTIONAL MATCH (t)<-[:Inneholder]-(r:Rammeverk)
+          RETURN
+            k.kategori_id AS id,
+            k.kategori AS kategori_tekst,
+            k.kategori_beskrivelse AS kategori_beskrivelse,
+            k.kategori_kort AS kategori_kort,
+            collect(DISTINCT {
+              sporsmal_tekst: s.sporsmal,
+              alternativer: [(s)-[:Inneholder]->(a_nested) | {
+                alternativ_tekst: a_nested.alternativ_tekst,
+                alternativ_beskrivelse: a_nested.alternativ_beskrivelse,
+                alternativ_hva: a_nested.hva_skal_implementeres,
+                alternativ_hvordan: a_nested.hvordan_implementere,
+                alternativ_tiltak_info: [(a_nested)-[:Dekker]->(t_nested)<-[:Inneholder]-(r_nested) | {
+                  id: t_nested.\`Lokal ID\`,
+                  tittel: t_nested.Tiltak,
+                  kapittel: t_nested.Kapittel,
+                  standard: t_nested.Standard,
+                  rammeverk: r_nested.Rammeverk
+                }]
               }]
-            }]
-          }) AS sporsmal_med_alternativer,
-          // Samle rammeverk direkte knyttet til kategorien (hvis relevant)
-          collect(DISTINCT r.Rammeverk) AS direkte_rammeverk,
-          collect(DISTINCT t.\`Lokal ID\`) AS dekkede_tiltak_lokal_id
-        LIMIT 1 // Siden vi matcher på unik kategori_id
-      `;
-
-      // Vi sender cacheKey hit slik at executeCypher kan håndtere det
-      const records = await this.executeCypher(cypher, { cardId }, cacheKey);
-
-      if (!records || records.length === 0) {
-        console.log("No card found for ID:", cardId);
-        return null; // Returner null hvis ingenting ble funnet
-      }
+            }) AS sporsmal_med_alternativer,
+            collect(DISTINCT r.Rammeverk) AS direkte_rammeverk,
+            collect(DISTINCT t.\`Lokal ID\`) AS dekkede_tiltak_lokal_id
+          LIMIT 1
+        `;
+      
+        // Send cardId direkte som parameter
+        const records = await this.executeCypher(cypher, { cardId }, cacheKey);
+      
+        // Resten forblir uendret
+        if (!records || records.length === 0) {
+          console.log("No card found for ID:", cardIdValue);
+          return null;
+        }
 
       // Neo4j-driveren returnerer komplekse objekter. Vi transformerer til vanlig JS-objekt.
       const rawResult = records[0].toObject();
@@ -172,62 +179,62 @@ class DBQueries {
 
     // --- Wrapper for getCardById (bruker den nye fetch-metoden) ---
     async getCardById(cardId) {
-      // Denne kaller nå bare fetchCardDataById som inkluderer caching
-      return await this.fetchCardDataById(cardId);
-    }
+        const records = await this.fetchCardDataById(cardId);
+        
+        // Sikre at vi alltid returnerer null eller en array,
+        // aldri et enkelt objekt som ikke er en array
+        if (!records) {
+          return null;
+        }
+        
+        // Forsikre oss om at vi returnerer en array, selv om det er ett element
+        return Array.isArray(records) ? records : [records];
+      }
 
     // --- Oppdater Kortstatus ---
     async updateCardState(cardId, state) {
-      // Valider state input
-      if (state !== 'avhuket' && state !== 'ikke_avhuket') { // Juster til dine faktiske states
-          throw new Error("Invalid state value provided. Must be 'avhuket' or 'ikke_avhuket'.");
+        // Konverter Neo4j Integer objekt til et vanlig heltall
+        let cardIdValue;
+        
+        if (cardId && typeof cardId === 'object') {
+          if (cardId.hasOwnProperty('low') && cardId.hasOwnProperty('high')) {
+            try {
+              const neo4j = require('neo4j-driver');
+              cardIdValue = neo4j.integer.toNumber(cardId);
+            } catch (err) {
+              cardIdValue = cardId.low;
+            }
+          } else if (cardId.id) {
+            cardIdValue = cardId.id;
+          } else {
+            cardIdValue = String(cardId);
+          }
+        } else {
+          cardIdValue = cardId;
+        }
+        
+        const cacheKey = `card_${cardIdValue}`;
+        if (this.cache[cacheKey]) {
+          console.log(`CACHE INVALIDATE for: ${cacheKey}`);
+          delete this.cache[cacheKey];
+        }
+      
+        // Resten av metoden forblir den samme, men bruk cardIdValue i stedet for cardId
+        const cypher = `
+          MATCH (k:Kategori {kategori_id: $cardId})
+          SET k.state = $state
+          RETURN k.kategori_id AS id, k.state AS state
+        `;
+      
+        const records = await this.executeCypher(cypher, { cardId: cardIdValue, state });
+      
+        if (records.length === 0) {
+          throw new Error(`Could not update state for card ID: ${cardIdValue}. Card not found.`);
+        }
+      
+        console.log(`State updated for card ${cardIdValue} to ${state}`);
+        return records[0].toObject();
       }
-
-      // Ved oppdatering, fjern cachen for dette spesifikke kortet
-      const cacheKey = `card_${cardId}`;
-      if (this.cache[cacheKey]) {
-        console.log(`CACHE INVALIDATE for: ${cacheKey}`);
-        delete this.cache[cacheKey];
-      }
-      // Vurder også å invalidere annen relatert cache, f.eks. brukerpoeng hvis det er cachet
-
-      // Antar at 'Kort' noden er den samme som 'Kategori' i din modell for state?
-      // Hvis state er på en annen node, juster spørringen.
-      // Bruker Kategori her basert på din getCardById
-      const cypher = `
-        MATCH (k:Kategori {kategori_id: $cardId})
-        SET k.state = $state
-        RETURN k.kategori_id AS id, k.state AS state
-      `;
-
-      // Ikke bruk cacheKey her, da vi *alltid* vil kjøre denne mot DB
-      const records = await this.executeCypher(cypher, { cardId, state });
-
-      if (records.length === 0) {
-          throw new Error(`Could not update state for card ID: ${cardId}. Card not found.`);
-      }
-
-      console.log(`State updated for card ${cardId} to ${state}`);
-      return records[0].toObject(); // Returner det oppdaterte objektet
-    }
-
-    // --- Hent Alle Kort (IDer) ---
-    // Antar at 'Kort' tilsvarer 'Kategori' i din bruk?
-    async getAllCards() {
-      const cacheKey = 'cards'; // Cache for listen over alle IDer
-
-      // Bruk executeCypher for caching
-      const cypher = `
-        MATCH (k:Kategori) // Eller MATCH (k:Kort) hvis det er en egen node
-        RETURN k.kategori_id AS id // Eller k.kort_id
-        ORDER BY id // Greit å sortere
-      `;
-      const records = await this.executeCypher(cypher, {}, cacheKey);
-
-      const cardIds = records.map(record => record.get('id'));
-      console.log("All card IDs fetched/returned:", cardIds.length);
-      return cardIds;
-    }
 
     // --- Beregn Brukerpoeng ---
     // Denne bør sannsynligvis IKKE caches aggressivt, da den endres ved updateCardState.

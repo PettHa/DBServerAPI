@@ -14,14 +14,14 @@ function errorHandler(err, req, res, next) {
     if (isNeo4jError) {
       return res.status(500).json({
         error: 'Database Error',
-        message: 'An error occurred while communicating with the database'
+        message: 'En feil oppstod i kommunikasjonen med databasen'
       });
     }
     
     // For andre feil
     res.status(err.status || 500).json({
       error: err.name || 'Server Error',
-      message: err.message || 'An unexpected error occurred'
+      message: err.message || 'En uventet feil oppstod'
     });
   }
   

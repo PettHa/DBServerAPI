@@ -17,7 +17,7 @@ function createApiRoutes(dbQueries) {
       const categoryIds = await dbQueries.getAllCategoryIds();
       res.json(categoryIds);
     } catch (error) {
-      next(error); // Send til feilhåndterer
+      next(error);
     }
   });
 
@@ -36,14 +36,41 @@ function createApiRoutes(dbQueries) {
   // Hent et spesifikt kort
   router.get('/cards/:id', async (req, res, next) => {
     try {
-      const cardId = req.params.id;
+      let cardId = req.params.id;
+      console.log(`API received card request for ID: ${cardId}, type: ${typeof cardId}`);
+      
+      // Konverter til tall hvis mulig
+      if (!isNaN(cardId)) {
+        cardId = parseInt(cardId, 10);
+        console.log(`Converted ID to number: ${cardId}`);
+      }
+      
       const cardData = await dbQueries.getCardById(cardId);
       
       if (!cardData) {
         return res.status(404).json({ message: `Card with ID ${cardId} not found` });
       }
       
-      res.json(cardData);
+      // Konverter Neo4j records til vanlige JSON-objekter for API-respons
+      // Sjekk om dataen er en array eller ikke
+      if (Array.isArray(cardData)) {
+        const processedData = cardData.map(record => {
+          // Sjekk om det er et Neo4j record med toObject-metode
+          if (record && typeof record.toObject === 'function') {
+            return record.toObject();
+          }
+          return record; // Allerede et vanlig objekt
+        });
+        
+        res.json(processedData);
+      } else {
+        // Hvis det ikke er en array, konverter direkte
+        const result = cardData && typeof cardData.toObject === 'function' 
+          ? cardData.toObject() 
+          : cardData;
+          
+        res.json([result]); // Returner alltid som array for konsistens
+      }
     } catch (error) {
       next(error);
     }
@@ -52,7 +79,13 @@ function createApiRoutes(dbQueries) {
   // Oppdater kort-status
   router.put('/cards/:id/state', async (req, res, next) => {
     try {
-      const cardId = req.params.id;
+      let cardId = req.params.id;
+      
+      // Konverter til tall hvis mulig
+      if (!isNaN(cardId)) {
+        cardId = parseInt(cardId, 10);
+      }
+      
       const { state } = req.body;
       
       if (!state || (state !== 'avhuket' && state !== 'ikke_avhuket')) {
@@ -62,7 +95,13 @@ function createApiRoutes(dbQueries) {
       }
       
       const updatedCard = await dbQueries.updateCardState(cardId, state);
-      res.json(updatedCard);
+      
+      // Konverter Neo4j record til vanlig JSON-objekt for API-respons
+      const responseData = updatedCard && typeof updatedCard.toObject === 'function' 
+        ? updatedCard.toObject() 
+        : updatedCard;
+        
+      res.json(responseData);
     } catch (error) {
       // Hvis feilen handler om at kortet ikke ble funnet, send 404
       if (error.message && error.message.includes('not found')) {
