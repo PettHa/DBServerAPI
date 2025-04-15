@@ -1,39 +1,29 @@
 // server/src/routes/api.js
 const express = require('express');
-const router = express.Router();
 
-// Denne funksjonen tar dbQueries som argument (dependency injection)
-module.exports = (dbQueries) => {
-  if (!dbQueries) {
-    throw new Error("api.js requires dbQueries instance");
-  }
+/**
+ * Oppretter API-ruter for applikasjonen
+ * @param {DBQueries} dbQueries - Instans av DBQueries-klassen
+ * @returns {Router} Express router med alle API-endepunkt
+ */
+function createApiRoutes(dbQueries) {
+  const router = express.Router();
 
-  // --- Hent alle kategori-IDer ---
+  // --- KATEGORI ENDEPUNKTER ---
+  
+  // Hent alle kategori-IDer
   router.get('/categories', async (req, res, next) => {
     try {
       const categoryIds = await dbQueries.getAllCategoryIds();
       res.json(categoryIds);
     } catch (error) {
-      next(error); // Send feil til global error handler
+      next(error); // Send til feilhåndterer
     }
   });
 
-  // --- Hent spesifikt kort/kategori basert på ID ---
-  router.get('/cards/:id', async (req, res, next) => {
-    const cardId = req.params.id;
-    try {
-      const cardData = await dbQueries.getCardById(cardId); // Bruker wrapperen
-      if (cardData) {
-        res.json(cardData);
-      } else {
-        res.status(404).json({ message: `Card with ID ${cardId} not found` });
-      }
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // --- Hent alle kort-IDer ---
+  // --- KORT ENDEPUNKTER ---
+  
+  // Hent alle kort-IDer
   router.get('/cards', async (req, res, next) => {
     try {
       const cardIds = await dbQueries.getAllCards();
@@ -43,52 +33,70 @@ module.exports = (dbQueries) => {
     }
   });
 
-
-  // --- Oppdater status for et kort ---
-  // Bruker POST siden det er en endring, men PUT kan også argumenteres for
-  // Trenger express.json() middleware i server.js for å parse req.body
-  router.post('/cards/:id/state', express.json(), async (req, res, next) => { // La til express.json() her også for sikkerhets skyld
-    const cardId = req.params.id;
-    const { state } = req.body; // Hent state fra request body
-
-    // Enkel validering
-    if (!state || (state !== 'avhuket' && state !== 'ikke_avhuket')) { // Bruk dine faktiske state-verdier
-      return res.status(400).json({ message: "Invalid or missing 'state' in request body. Use 'avhuket' or 'ikke_avhuket'." });
-    }
-
+  // Hent et spesifikt kort
+  router.get('/cards/:id', async (req, res, next) => {
     try {
-      const updatedCard = await dbQueries.updateCardState(cardId, state);
-      res.json(updatedCard);
-    } catch (error) {
-      // Håndter spesifikt "not found" vs andre feil?
-      if (error.message.includes('not found')) {
-           return res.status(404).json({ message: `Card with ID ${cardId} not found for state update.` });
+      const cardId = req.params.id;
+      const cardData = await dbQueries.getCardById(cardId);
+      
+      if (!cardData) {
+        return res.status(404).json({ message: `Card with ID ${cardId} not found` });
       }
-      next(error); // Send andre feil til global handler
-    }
-  });
-
-  // --- Hent brukerens poengsum ---
-  router.get('/user/points', async (req, res, next) => {
-    try {
-      const points = await dbQueries.calculateUserPoints();
-      res.json({ totalPoints: points });
+      
+      res.json(cardData);
     } catch (error) {
       next(error);
     }
   });
 
-  // --- (Valgfritt) Endepunkt for å tømme cache ---
-  // Bør kanskje sikres bedre i en ekte applikasjon
-  router.post('/cache/clear', (req, res, next) => {
-      try {
-          dbQueries.clearCache();
-          res.status(200).json({ message: "Server cache cleared" });
-      } catch(error) {
-          next(error);
+  // Oppdater kort-status
+  router.put('/cards/:id/state', async (req, res, next) => {
+    try {
+      const cardId = req.params.id;
+      const { state } = req.body;
+      
+      if (!state || (state !== 'avhuket' && state !== 'ikke_avhuket')) {
+        return res.status(400).json({ 
+          message: "Invalid request. Body must include 'state' with value 'avhuket' or 'ikke_avhuket'" 
+        });
       }
+      
+      const updatedCard = await dbQueries.updateCardState(cardId, state);
+      res.json(updatedCard);
+    } catch (error) {
+      // Hvis feilen handler om at kortet ikke ble funnet, send 404
+      if (error.message && error.message.includes('not found')) {
+        return res.status(404).json({ message: error.message });
+      }
+      next(error);
+    }
+  });
+  
+  // --- BRUKER ENDEPUNKTER ---
+  
+  // Beregn og hent brukerpoeng
+  router.get('/points', async (req, res, next) => {
+    try {
+      const points = await dbQueries.calculateUserPoints();
+      res.json({ points });
+    } catch (error) {
+      next(error);
+    }
+  });
+  
+  // --- ADMIN/DEBUG ENDEPUNKTER ---
+  
+  // Tøm cache (kun for utviklingsformål)
+  router.post('/admin/clear-cache', async (req, res, next) => {
+    try {
+      dbQueries.clearCache();
+      res.json({ message: "Cache cleared successfully" });
+    } catch (error) {
+      next(error);
+    }
   });
 
+  return router;
+}
 
-  return router; // Returner den konfigurerte routeren
-};
+module.exports = createApiRoutes;

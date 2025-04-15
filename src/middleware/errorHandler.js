@@ -1,16 +1,28 @@
 // server/src/middleware/errorHandler.js
-
-// Enkel feilhåndterer - logg feilen og send en generell feilmelding
-const errorHandler = (err, req, res, next) => {
-    console.error("Unhandled Error:", err.stack || err); // Logg stack trace eller feilmelding
-  
-    // Ikke lek sensitive detaljer til klienten i produksjon
-    // Du kan sjekke process.env.NODE_ENV === 'production' her
-    res.status(500).json({
-      message: "An internal server error occurred.",
-      // Du kan legge til error.message her under utvikling hvis ønskelig
-      // error: process.env.NODE_ENV !== 'production' ? err.message : undefined
+/**
+ * Global feilhåndterer for API-et
+ */
+function errorHandler(err, req, res, next) {
+    console.error('API Error:', err);
+    
+    // Sjekk om det er en Neo4j-feil
+    const isNeo4jError = err.code && err.message && (
+      err.code.startsWith('Neo.') || 
+      err.message.includes('Neo4j')
+    );
+    
+    if (isNeo4jError) {
+      return res.status(500).json({
+        error: 'Database Error',
+        message: 'An error occurred while communicating with the database'
+      });
+    }
+    
+    // For andre feil
+    res.status(err.status || 500).json({
+      error: err.name || 'Server Error',
+      message: err.message || 'An unexpected error occurred'
     });
-  };
+  }
   
   module.exports = errorHandler;

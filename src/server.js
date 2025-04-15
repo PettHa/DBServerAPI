@@ -3,7 +3,7 @@ const path = require('path');
 
 // 1. Last .env fil FØRST (kun for lokal kjøring)
 // Peker til .env i prosjekt-roten
-require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 // 2. Importer moduler
 const express = require('express');
@@ -26,25 +26,57 @@ let driver;
 let dbQueries;
 
 try {
-  // 5. Initialiser Neo4j Driver
-  driver = neo4j.driver(NEO4J_URI, neo4j.auth.basic(NEO4J_USER, NEO4J_PASSWORD), {
-       userAgent: 'MyApp/1.0', // Bra å identifisere appen din
-       // connectionTimeout: 5000, // Eksempel: Millisekunder
-       // maxConnectionPoolSize: 50, // Standard er 100
-  });
-
-  // Test tilkobling (asynkront, fortsetter selv om det feiler her initielt)
-  driver.verifyConnectivity({ database: NEO4J_DATABASE })
-    .then(() => console.log(`Successfully connected to Neo4j DB: ${NEO4J_DATABASE} at ${NEO4J_URI.split('@')[1]}`)) // Skjul user/pass fra logg
-    .catch(error => console.error('Neo4j Driver - Initial connection verification failed:', error));
-
-  // 6. Initialiser DBQueries med driveren
-  dbQueries = new DBQueries(driver);
-
-} catch (error) {
-  console.error('FATAL ERROR: Failed to create Neo4j driver:', error);
-  process.exit(1);
-}
+    // 5. Initialize Neo4j Driver with improved configuration
+    const driverConfig = {};
+    
+    if (NEO4J_URI.includes('databases.neo4j.io') || 
+        NEO4J_URI.startsWith('neo4j+s://') || 
+        NEO4J_URI.startsWith('bolt+s://')) {
+      // Configuration for Neo4j Aura or any secure connection
+      Object.assign(driverConfig, {
+        encrypted: true,
+        trust: 'TRUST_SYSTEM_CA_SIGNED_CERTIFICATES',
+        connectionTimeout: 30000,
+        maxConnectionPoolSize: 50, // You can adjust this based on your needs
+        userAgent: 'MyApp/1.0'
+      });
+    } else {
+      // Configuration for local/non-Aura databases
+      Object.assign(driverConfig, {
+        encrypted: false,
+        userAgent: 'MyApp/1.0'
+      });
+    }
+    
+    // Create driver with the appropriate config
+    driver = neo4j.driver(NEO4J_URI, neo4j.auth.basic(NEO4J_USER, NEO4J_PASSWORD), driverConfig);
+  
+    // Test connectivity
+    driver.verifyConnectivity({ database: NEO4J_DATABASE })
+      .then(() => {
+        console.log(`Successfully connected to Neo4j DB: ${NEO4J_DATABASE} at ${NEO4J_URI.split('@')[1]}`);
+        
+        // Optional: Run a test query to ensure full functionality
+        const session = driver.session({ database: NEO4J_DATABASE });
+        return session.run('RETURN 1 as test')
+          .then(() => {
+            console.log('Neo4j test query executed successfully');
+            return session.close();
+          })
+          .catch(error => {
+            console.error('Neo4j test query failed:', error);
+            return session.close().then(() => Promise.reject(error));
+          });
+      })
+      .catch(error => console.error('Neo4j Driver - Connection verification failed:', error));
+  
+    // 6. Initialize DBQueries with the driver
+    dbQueries = new DBQueries(driver);
+  
+  } catch (error) {
+    console.error('FATAL ERROR: Failed to create Neo4j driver:', error);
+    process.exit(1);
+  }
 
 // 7. Opprett Express app
 const app = express();
